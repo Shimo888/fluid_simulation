@@ -33,8 +33,8 @@ namespace MySimulator
 
         protected abstract void InternalUpdate(float dt);
 
-        protected abstract void InternalSetUpRenderer(Texture2D texture);
+        protected abstract void InternalSetUpRenderer(RenderTexture texture);
 
-        protected abstract void InternalRender(Texture2D texture);
+        protected abstract void InternalRender(RenderTexture texture);
     }
 }

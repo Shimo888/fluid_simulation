@@ -26,7 +26,7 @@ namespace App.StableFluid
         private float[,] _prevVelocityY;
         
         // レンダリング用バッファ
-        private Color[] _renderingBuffer;
+        private Texture2D _texture2dToRender;
         
         protected override void InternalSetUp()
         {
@@ -63,16 +63,15 @@ namespace App.StableFluid
             UpdateDensity(dt);
         }
 
-        protected override void InternalSetUpRenderer(Texture2D texture)
+        protected override void InternalSetUpRenderer(RenderTexture texture)
         {
-            // 黒色で初期化  
-            _renderingBuffer = new Color[texture.width * texture.height];
-            
-            texture.SetPixels(_renderingBuffer);
-            texture.Apply();
+            _texture2dToRender = new Texture2D(texture.width, texture.height, TextureFormat.RFloat, false);
+            _texture2dToRender.filterMode = FilterMode.Point;
+            var tex = RenderTexture.active;
+            Graphics.Blit(tex, texture);
         }
 
-        protected override void InternalRender(Texture2D texture)
+        protected override void InternalRender(RenderTexture texture)
         {
             for (var x = 0; x < texture.width; x++)
             {
@@ -80,12 +79,12 @@ namespace App.StableFluid
                 {
                     // 密度をそのまま色に変換
                     var d = Mathf.Clamp01(_density[x, y]);
-                    _renderingBuffer[x + y * texture.width] = new Color(d, d, d, 1.0f);
+                    _texture2dToRender.SetPixel(x, y, new Color(d, d, d, 1.0f));
                 }
             }
             
-            texture.SetPixels(_renderingBuffer);
-            texture.Apply();
+            _texture2dToRender.Apply();
+            Graphics.Blit(_texture2dToRender, texture);
         }
 
 #region Logic
@@ -314,13 +313,13 @@ namespace App.StableFluid
             {
                 switch (valueType)
                 {
-                    case ValueType.VectorX: // 鏡面反射
-                        value[x, 0] = -value[x, 1];
-                        value[x, yMax - 1] = -value[x, yMax - 2];
+                    case ValueType.VectorY: // 鏡面反射
+                        value[x, 0] = -value[x, 1]; // 上面
+                        value[x, yMax - 1] = -value[x, yMax - 2]; // 下面
                         break;
                     default:
-                        value[x, 0] = value[x, 1];
-                        value[x, yMax - 1] = value[x, yMax - 2];
+                        value[x, 0] = value[x, 1]; // 上面
+                        value[x, yMax - 1] = value[x, yMax - 2]; // 下面
                         break;
                 }
             }
@@ -329,7 +328,7 @@ namespace App.StableFluid
             {
                 switch (valueType)
                 {
-                    case ValueType.VectorY: // 鏡面反射
+                    case ValueType.VectorX: // 鏡面反射
                         value[0, y] = -value[1, y];
                         value[xMax - 1, y] = -value[xMax - 2, y];
                         break;
