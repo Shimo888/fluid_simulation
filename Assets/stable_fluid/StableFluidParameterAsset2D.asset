@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: StableFluidParameterAsset2D
   m_EditorClassIdentifier: 
   _gridParameter2D:
-    _xMax: 128
-    _yMax: 128
+    _xMax: 512
+    _yMax: 512
   _densDiffusion: 0.0001
   _viscosity: 0.0001
