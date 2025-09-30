@@ -33,12 +33,8 @@ namespace MySimulator
 
         private RenderTexture SetUpTexture(GridParameterAsset2D.GridParameter2D gridParameter)
         {
-            var texture = new RenderTexture(gridParameter.XMax, gridParameter.YMax, 0)
-            {
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp
-            };
-            
+            var texture = new RenderTexture(gridParameter.XMax, gridParameter.YMax, 0, RenderTextureFormat.ARGBFloat);
+            texture.enableRandomWrite = true;
             _imageUi.texture = texture;
             return texture;
         }

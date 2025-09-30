@@ -1,0 +1,226 @@
+#pragma kernel UpdateUserInteraction
+#pragma kernel AddSourceOrForce
+#pragma kernel Diffuse
+#pragma kernel Advect
+#pragma kernel Project_CalcDivVel
+#pragma kernel Project_CalcPoissonP
+#pragma kernel Project_CalcDiv0
+#pragma kernel SetBoundary
+#pragma kernel Reset
+#pragma kernel Render
+
+// 値の種類
+// 境界条件で使用する
+static const int Scalar = 0;
+static const int VectorX = 1;
+static const int VectorY = 2;
+
+// パラメータ
+cbuffer Params
+{
+    float Dt;
+    int2 GridSize;
+};
+
+int ValueType; // 値の種類
+
+// 状態量
+// Bufferをできる限り使いまわせるように、Input,Outputのような命名で定義する
+// カーネルによってどのBufferが何を意味するのかは変わる 
+Texture2D<float> InputFloat;
+Texture2D<float> InputFloat2;
+Texture2D<float> InputFloat3;
+RWTexture2D<float> OutputFloat;
+RWTexture2D<float> OutputFloat2;
+RWTexture2D<float> OutputFloat3;
+RWTexture2D<float4> RenderTexture;
+
+float2 InputPos;
+// ユーザー操作によりソースを追加するためのカーネル
+// OutputFloat: source
+// OutputFloat2: forceX
+// OutputFloat3: forceY
+[numthreads(8,8,1)]
+void UpdateUserInteraction(uint3 id : SV_DispatchThreadID)
+{
+    OutputFloat[id.xy] = 0;
+    OutputFloat2[id.xy] = 0;
+    OutputFloat3[id.xy] = 0;
+}
+
+// InputFloat : source
+// OutputFloat : newVal 
+[numthreads(8,8,1)]
+void AddSourceOrForce(uint3 id : SV_DispatchThreadID)
+{
+    float source = InputFloat[id.xy];
+    OutputFloat[id.xy] += Dt * source;
+}
+
+float Diffusion;
+// ヤコビ法で反復するためのカーネル
+// 前回の反復結果を計算に使用する
+// InputFloat : prevValue
+// InputFloat2 : newVal(前回の反復結果)
+// OutputFloat : newValue
+[numthreads(8,8,1)]
+void Diffuse(uint3 id : SV_DispatchThreadID)
+{
+    // 境界以外で計算
+    if (1 <= id.x && id.x <= GridSize.x - 2 && 1 <= id.y && id.y <= GridSize.y - 2)
+    {
+        float a = Dt * Diffusion * (GridSize.x -2) * (GridSize.y - 2);
+        OutputFloat[id.xy] = (InputFloat[id.xy] + a * (
+            InputFloat2[id.xy + int2(1,0)] + InputFloat2[id.xy + int2(-1,0)] +
+            InputFloat2[id.xy + int2(0,1)] + InputFloat2[id.xy + int2(0,-1)]
+        )) / (1 + 4 * a);
+    }
+}
+
+// InputFloat : prevVal
+// InputFloat2 : velocityX
+// InputFloat3 : velocityY
+// OutputFloat : newVal
+[numthreads(8,8,1)]
+void Advect(uint3 id : SV_DispatchThreadID)
+{
+    if (1 <= id.x && id.x <= GridSize.x - 2 && 1 <= id.y && id.y <= GridSize.y - 2)
+    {
+        // 1frame前の流速の位置をバックトレース
+        // indexと同じ単位に変換している
+        // vel * dt / dr = vel * dt * N (dr * N = 1の仮定ありき)
+        float posX = id.x - Dt * (GridSize.x - 2) * InputFloat2[id.xy];
+        float posy = id.y - Dt * (GridSize.y - 2) * InputFloat3[id.xy];
+
+        // バックトレースした位置が格子からでないように
+        posX = clamp(posX, 0.5, GridSize.x - 1.5);
+        int i0 = (int)floor(posX);
+        int i1 = i0 + 1;
+        posy = clamp(posy, 0.5, GridSize.y - 1.5);
+        int j0 = (int)floor(posy);
+        int j1 = j0 + 1;
+
+        // 補完係数
+        float s1 = posX - i0;
+        float s0 = 1.0 - s1;
+        float t1 = posy - j0;
+        float t0 = 1.0 - t1;
+
+        // 双線形補間して値を決定
+        // x方向に補完した値→y方向に補完で求まる
+        OutputFloat[id.xy] = s0 * (t0 * InputFloat[int2(i0,j0)] + t1 * InputFloat[int2(i0,j1)]) +
+            s1 * (t0 * InputFloat[int2(i1,j0)] + t1 * InputFloat[int2(i1,j1)]);
+    }
+}
+
+
+// 流速のDivを求める
+// InputFloat2 : velocityX 
+// InputFloat3 : velocityY
+// OutputFloat : divVel
+[numthreads(8,8,1)]
+void Project_CalcDivVel(uint3 id : SV_DispatchThreadID)
+{
+    if (1 <= id.x && id.x <= GridSize.x - 2 && 1 <= id.y && id.y <= GridSize.y - 2)
+    {
+        // 発散の計算
+        float h = 1.0 / (GridSize.x - 2); // 格子幅(h*N =1の仮定)
+        OutputFloat[id.xy] = -0.5 * h * (
+            InputFloat2[id.xy + int2(1,0)] - InputFloat2[id.xy + int2(-1,0)] +
+            InputFloat3[id.xy + int2(0,1)] - InputFloat3[id.xy + int2(0,-1)]
+        );
+    }
+}
+
+// ヤコビ法で求めるのでカーネル化するしかなかった
+// ポアソン方程式を求める
+// InputFloat : divVel
+// InputFloat2 : p (前回の計算結果)
+// OutputFloat : p
+[numthreads(8,8,1)]
+void Project_CalcPoissonP(uint3 id : SV_DispatchThreadID)
+{
+    if (1 <= id.x && id.x <= GridSize.x - 2 && 1 <= id.y && id.y <= GridSize.y - 2)
+    {
+        float div = InputFloat[id.xy];
+        OutputFloat[id.xy] = (div + 
+            InputFloat2[id.xy + int2(1,0)] + InputFloat2[id.xy + int2(-1,0)] +
+            InputFloat2[id.xy + int2(0,1)] + InputFloat2[id.xy + int2(0,-1)]
+        ) / 4.0;
+    }
+}
+
+// 流速場のdiv=0の成分を求める部分
+// InputFloat : p
+// OutputFloat : velocityX
+// OutputFloat2 : velocityY
+[numthreads(8,8,1)]
+void Project_CalcDiv0(uint3 id : SV_DispatchThreadID)
+{
+    if (1 <= id.x && id.x <= GridSize.x - 2 && 1 <= id.y && id.y <= GridSize.y - 2)
+    {
+        float h = 1.0 / (GridSize.x - 2); // 格子幅(h*N =1の仮定)
+        OutputFloat[id.xy] -= 0.5 * (InputFloat[id.xy + int2(1,0)] - InputFloat[id.xy + int2(-1,0)]) / h;
+        OutputFloat2[id.xy] -= 0.5 * (InputFloat[id.xy + int2(0,1)] - InputFloat[id.xy + int2(0,-1)]) / h;
+    }
+}
+
+// 境界条件の設定
+// 4隅は論文では平均値をとっていたがGPU側で計算するのが面倒なので無視している
+// OutputFloat : output
+[numthreads(8,8,1)]
+void SetBoundary(uint3 id : SV_DispatchThreadID)
+{
+    // 4隅は無視
+    if ((id.x == 0 && id.y == 0) || (id.x == 0 && id.y == GridSize.y - 1) ||
+        (id.x == GridSize.x - 1 && id.y == 0) || (id.x == GridSize.x - 1 && id.y == GridSize.y - 1))
+    {
+        return;
+    }
+    
+    // 左面
+    if (id.x == 0)
+    {
+        // x成分のときは反射する
+        OutputFloat[id.xy] = ValueType == VectorX ? -OutputFloat[id.xy + int2(1,0)] : OutputFloat[id.xy + int2(1,0)];
+    }
+
+    // 右面
+    if (id.x == GridSize.x - 1)
+    {
+        // x成分のときは反射する
+        OutputFloat[id.xy] = ValueType == VectorX ? -OutputFloat[id.xy + int2(-1,0)] : OutputFloat[id.xy + int2(-1,0)];
+    }
+    
+    // 上面 
+    if (id.y == 0)
+    {
+        // y成分のときは反射する
+        OutputFloat[id.xy] = ValueType == VectorY ? -OutputFloat[id.xy + int2(0,1)] : OutputFloat[id.xy + int2(0,1)];
+    }
+
+    // 下面
+    if (id.y == GridSize.y - 1)
+    {
+        // y成分のときは反射する
+        OutputFloat[id.xy] = ValueType == VectorY ? -OutputFloat[id.xy + int2(0,-1)] : OutputFloat[id.xy + int2(0,-1)];
+    }
+}
+
+// 値のReset
+// OutputFloat : output
+[numthreads(8,8,1)]
+void Reset(uint3 id : SV_DispatchThreadID)
+{
+    OutputFloat[id.xy] = 0;
+}
+
+// 描画するためのカーネル
+// InputFloat : density
+// RenderTexture : render texture
+[numthreads(8,8,1)]
+void Render(uint3 id : SV_DispatchThreadID)
+{
+    float d = InputFloat[id.xy];
+    RenderTexture[id.xy] = float4(d,d,d,1);
+}
