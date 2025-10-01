@@ -1,6 +1,11 @@
 using System;
+using System.Diagnostics;
+using System.Drawing;
 using MySimulator;
+using UnityEditor;
 using UnityEngine;
+using Color = UnityEngine.Color;
+using Debug = System.Diagnostics.Debug;
 using Random = UnityEngine.Random;
 
 namespace App.StableFluid
@@ -20,6 +25,9 @@ namespace App.StableFluid
         
         [SerializeField] 
         private StableFluidParameterAsset2D _parameterAsset;
+        
+        [SerializeField]
+        private UserInterface _userInterface;
 
         private RenderTexture _density;
         private RenderTexture _prevDensity;
@@ -54,6 +62,8 @@ namespace App.StableFluid
         private static readonly int OutputFloat3 = Shader.PropertyToID("OutputFloat3");
         private static readonly int RenderTextureBuf = Shader.PropertyToID("RenderTexture");
         private static readonly int ValueType1 = Shader.PropertyToID("ValueType");
+        private static readonly int InputPos = Shader.PropertyToID("InputPos");
+        private static readonly int Input1 = Shader.PropertyToID("Input");
 
         protected override void InternalSetUp()
         {
@@ -185,6 +195,13 @@ namespace App.StableFluid
         /// </summary>
         private void UpdateUserInteraction()
         {
+            var inputPos = _userInterface.InputPos;
+            _computeShader.SetBool(Input1, inputPos.HasValue);
+            if (inputPos.HasValue)
+            {
+                _computeShader.SetFloats(InputPos, inputPos.Value.x, inputPos.Value.y);
+            }
+
             _computeShader.SetTexture(_updateUserInteraction, OutputFloat,  _prevDensity);
             _computeShader.SetTexture(_updateUserInteraction, OutputFloat2, _prevVelocityX);
             _computeShader.SetTexture(_updateUserInteraction, OutputFloat3, _prevVelocityY);

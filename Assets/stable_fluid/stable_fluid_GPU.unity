@@ -252,6 +252,9 @@ MonoBehaviour:
           _imageUi: {fileID: 539961170}
         _computeShader: {fileID: 7200000, guid: 124f9670c6fab4d5090fa6269b8d90e5, type: 3}
         _parameterAsset: {fileID: 11400000, guid: d29d26be7b3d040a49df9e7e3524fbb2, type: 2}
+        _userInterface:
+          _canvas: {fileID: 1361441597}
+          _texture: {fileID: 539961170}
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0

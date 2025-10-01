@@ -36,6 +36,7 @@ RWTexture2D<float> OutputFloat3;
 RWTexture2D<float4> RenderTexture;
 
 float2 InputPos;
+bool Input;
 // ユーザー操作によりソースを追加するためのカーネル
 // OutputFloat: source
 // OutputFloat2: forceX
@@ -43,9 +44,12 @@ float2 InputPos;
 [numthreads(8,8,1)]
 void UpdateUserInteraction(uint3 id : SV_DispatchThreadID)
 {
-    OutputFloat[id.xy] = 0;
-    OutputFloat2[id.xy] = 0;
-    OutputFloat3[id.xy] = 0;
+    float2 gridPos = (float2(id.xy) + 0.5) / float2(GridSize);
+	float2 vec = gridPos - InputPos;
+	float2 vecN = normalize(vec);
+	float strength = 150.0 * exp(-dot(vec,vec) * 2000.0); // ガウス分布
+    OutputFloat2[id.xy] = Input ? strength * vecN.x : 0.0;
+    OutputFloat3[id.xy] = Input ? strength * vecN.y : 0.0;
 }
 
 // InputFloat : source
